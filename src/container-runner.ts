@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -76,16 +77,10 @@ function buildVolumeMounts(
       readonly: true,
     });
 
-    // Shadow .env so the agent cannot read secrets from the mounted project root.
-    // Credentials are injected by the credential proxy, never exposed to containers.
-    const envFile = path.join(projectRoot, '.env');
-    if (fs.existsSync(envFile)) {
-      mounts.push({
-        hostPath: '/dev/null',
-        containerPath: '/workspace/project/.env',
-        readonly: true,
-      });
-    }
+    // .env shadowing is handled inside the container entrypoint via mount --bind.
+    // Apple Container only supports directory mounts, so host-side /dev/null
+    // overlay is not possible. The entrypoint starts as root, shadows .env,
+    // then drops privileges via setpriv.
 
     // Main also gets its group folder as the working directory
     mounts.push({
@@ -237,6 +232,13 @@ function buildContainerArgs(
     args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
   } else {
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+  }
+
+  // Pass YNAB credentials if configured (read-only CLI wrapper enforces safety)
+  const ynabEnv = readEnvFile(['YNAB_API_KEY', 'YNAB_ACCESS_TOKEN']);
+  const ynabKey = ynabEnv.YNAB_API_KEY || ynabEnv.YNAB_ACCESS_TOKEN;
+  if (ynabKey) {
+    args.push('-e', `YNAB_API_KEY=${ynabKey}`);
   }
 
   // Runtime-specific args for host gateway resolution

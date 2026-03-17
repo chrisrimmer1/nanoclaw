@@ -23,14 +23,28 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     curl \
     git \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Set Chromium path for agent-browser
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
-# Install agent-browser and claude-code globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code
+# Install Bun (needed for ynab-cli)
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:$PATH"
+
+# Install agent-browser, claude-code, and summarize globally
+RUN npm install -g agent-browser @anthropic-ai/claude-code @steipete/summarize
+
+# Install ynab-cli via Bun, then wrap with read-only shim
+# Move real binary + bun runtime to /usr/local/bin so they're on PATH after privilege drop
+RUN bun install -g @stephendolan/ynab-cli \
+    && cp /root/.bun/bin/bun /usr/local/bin/bun \
+    && cp /root/.bun/bin/ynab /usr/local/bin/.ynab-real \
+    && chmod +x /usr/local/bin/.ynab-real /usr/local/bin/bun
+COPY ynab-readonly.sh /usr/local/bin/ynab
+RUN chmod +x /usr/local/bin/ynab
 
 # Create app directory
 WORKDIR /app

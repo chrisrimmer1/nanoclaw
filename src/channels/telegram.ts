@@ -19,6 +19,45 @@ export interface TelegramChannelOpts {
 }
 
 /**
+ * Convert markdown tables to monospace code blocks for Telegram.
+ * Telegram doesn't support markdown table syntax, so we render them
+ * as fixed-width text inside ``` blocks for proper alignment.
+ */
+function convertTables(text: string): string {
+  // Match markdown table blocks: header row, separator row, data rows
+  const tableRegex = /(?:^|\n)(\|.+\|[ \t]*\n\|[-| :]+\|[ \t]*\n(?:\|.+\|[ \t]*\n?)+)/g;
+  return text.replace(tableRegex, (match) => {
+    const lines = match.trim().split('\n');
+    // Remove the separator row (|---|---|)
+    const headerLine = lines[0];
+    const dataLines = lines.slice(2);
+    const allLines = [headerLine, ...dataLines];
+
+    // Parse cells and calculate column widths
+    const parsed = allLines.map((line) =>
+      line
+        .replace(/^\|/, '')
+        .replace(/\|$/, '')
+        .split('|')
+        .map((cell) => cell.trim()),
+    );
+    const colWidths = parsed[0].map((_, i) =>
+      Math.max(...parsed.map((row) => (row[i] || '').length)),
+    );
+
+    // Render aligned rows with compact 1-space gaps
+    const rendered = parsed.map((row) =>
+      row.map((cell, i) => cell.padEnd(colWidths[i])).join(' '),
+    );
+    // Add a separator after the header
+    const sep = colWidths.map((w) => '-'.repeat(w)).join(' ');
+    const output = [rendered[0], sep, ...rendered.slice(1)].join('\n');
+
+    return '\n```\n' + output + '\n```\n';
+  });
+}
+
+/**
  * Send a message with Telegram Markdown parse mode, falling back to plain text.
  * Claude's output naturally matches Telegram's Markdown v1 format:
  *   *bold*, _italic_, `code`, ```code blocks```, [links](url)
@@ -29,15 +68,16 @@ async function sendTelegramMessage(
   text: string,
   options: { message_thread_id?: number } = {},
 ): Promise<void> {
+  const formatted = convertTables(text);
   try {
-    await api.sendMessage(chatId, text, {
+    await api.sendMessage(chatId, formatted, {
       ...options,
       parse_mode: 'Markdown',
     });
   } catch (err) {
     // Fallback: send as plain text if Markdown parsing fails
     logger.debug({ err }, 'Markdown send failed, falling back to plain text');
-    await api.sendMessage(chatId, text, options);
+    await api.sendMessage(chatId, formatted, options);
   }
 }
 
