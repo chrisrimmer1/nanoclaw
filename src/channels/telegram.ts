@@ -25,7 +25,8 @@ export interface TelegramChannelOpts {
  */
 function convertTables(text: string): string {
   // Match markdown table blocks: header row, separator row, data rows
-  const tableRegex = /(?:^|\n)(\|.+\|[ \t]*\n\|[-| :]+\|[ \t]*\n(?:\|.+\|[ \t]*\n?)+)/g;
+  const tableRegex =
+    /(?:^|\n)(\|.+\|[ \t]*\n\|[-| :]+\|[ \t]*\n(?:\|.+\|[ \t]*\n?)+)/g;
   return text.replace(tableRegex, (match) => {
     const lines = match.trim().split('\n');
     // Remove the separator row (|---|---|)

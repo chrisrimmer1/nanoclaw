@@ -149,7 +149,7 @@ function buildVolumeMounts(
       const srcDir = path.join(skillsSrc, skillDir);
       if (!fs.statSync(srcDir).isDirectory()) continue;
       const dstDir = path.join(skillsDst, skillDir);
-      fs.cpSync(srcDir, dstDir, { recursive: true });
+      fs.cpSync(srcDir, dstDir, { recursive: true, dereference: true });
     }
   }
   mounts.push({
@@ -193,6 +193,20 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Mount gws (Google Workspace CLI) credentials read-only if available
+  const gwsConfigDir = path.join(
+    process.env.HOME || '/root',
+    '.config',
+    'gws',
+  );
+  if (fs.existsSync(gwsConfigDir)) {
+    mounts.push({
+      hostPath: gwsConfigDir,
+      containerPath: '/home/node/.config/gws',
+      readonly: false, // gws needs write access to refresh OAuth tokens
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {

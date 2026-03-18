@@ -34,8 +34,8 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:$PATH"
 
-# Install agent-browser, claude-code, and summarize globally
-RUN npm install -g agent-browser @anthropic-ai/claude-code @steipete/summarize
+# Install agent-browser, claude-code, summarize, and gws CLI globally
+RUN npm install -g agent-browser @anthropic-ai/claude-code @steipete/summarize @googleworkspace/cli
 
 # Install ynab-cli via Bun, then wrap with read-only shim
 # Move real binary + bun runtime to /usr/local/bin so they're on PATH after privilege drop
