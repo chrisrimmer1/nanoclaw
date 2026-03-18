@@ -195,11 +195,7 @@ function buildVolumeMounts(
   });
 
   // Mount gws (Google Workspace CLI) credentials read-only if available
-  const gwsConfigDir = path.join(
-    process.env.HOME || '/root',
-    '.config',
-    'gws',
-  );
+  const gwsConfigDir = path.join(process.env.HOME || '/root', '.config', 'gws');
   if (fs.existsSync(gwsConfigDir)) {
     mounts.push({
       hostPath: gwsConfigDir,
