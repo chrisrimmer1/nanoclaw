@@ -14,6 +14,11 @@ vi.mock('../config.js', () => ({
   TRIGGER_PATTERN: /^@Andy\b/i,
 }));
 
+// Mock transcription (no API key in test env)
+vi.mock('../transcription.js', () => ({
+  transcribeAudio: vi.fn(() => Promise.resolve(null)),
+}));
+
 // Mock logger
 vi.mock('../logger.js', () => ({
   logger: {
@@ -606,7 +611,9 @@ describe('TelegramChannel', () => {
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Voice message]' }),
+        expect.objectContaining({
+          content: '[Voice message — transcription failed]',
+        }),
       );
     });
 
