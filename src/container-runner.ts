@@ -251,6 +251,15 @@ function buildContainerArgs(
     args.push('-e', `YNAB_API_KEY=${ynabKey}`);
   }
 
+  // Pass GitHub credentials if configured
+  const ghEnv = readEnvFile(['GITHUB_TOKEN', 'GH_REPO']);
+  if (ghEnv.GITHUB_TOKEN) {
+    args.push('-e', `GITHUB_TOKEN=${ghEnv.GITHUB_TOKEN}`);
+  }
+  if (ghEnv.GH_REPO) {
+    args.push('-e', `GH_REPO=${ghEnv.GH_REPO}`);
+  }
+
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());
 
