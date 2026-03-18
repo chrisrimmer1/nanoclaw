@@ -253,6 +253,10 @@ export class TelegramChannel implements Channel {
         const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
         const text = await transcribeAudio(fileUrl);
         if (text) {
+          await ctx.reply(`🎙 You said: _${text}_`, {
+            parse_mode: 'Markdown',
+            reply_parameters: { message_id: ctx.message.message_id },
+          });
           storeNonText(ctx, `[Voice: ${text}]`);
         } else {
           storeNonText(ctx, '[Voice message — transcription unavailable]');
