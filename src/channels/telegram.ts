@@ -5,6 +5,7 @@ import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { registerChannel, ChannelOpts } from './registry.js';
+import { transcribeAudio } from '../transcription.js';
 import {
   Channel,
   OnChatMetadata,
@@ -242,7 +243,25 @@ export class TelegramChannel implements Channel {
 
     this.bot.on('message:photo', (ctx) => storeNonText(ctx, '[Photo]'));
     this.bot.on('message:video', (ctx) => storeNonText(ctx, '[Video]'));
-    this.bot.on('message:voice', (ctx) => storeNonText(ctx, '[Voice message]'));
+    this.bot.on('message:voice', async (ctx) => {
+      const chatJid = `tg:${ctx.chat.id}`;
+      const group = this.opts.registeredGroups()[chatJid];
+      if (!group) return;
+
+      try {
+        const file = await ctx.getFile();
+        const fileUrl = `https://api.telegram.org/file/bot${this.botToken}/${file.file_path}`;
+        const text = await transcribeAudio(fileUrl);
+        if (text) {
+          storeNonText(ctx, `[Voice: ${text}]`);
+        } else {
+          storeNonText(ctx, '[Voice message — transcription unavailable]');
+        }
+      } catch (err) {
+        logger.error({ err }, 'Failed to process voice message');
+        storeNonText(ctx, '[Voice message — transcription failed]');
+      }
+    });
     this.bot.on('message:audio', (ctx) => storeNonText(ctx, '[Audio]'));
     this.bot.on('message:document', (ctx) => {
       const name = ctx.message.document?.file_name || 'file';
