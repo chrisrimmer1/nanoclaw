@@ -49,3 +49,23 @@ curl -s "https://api.open-meteo.com/v1/forecast?latitude=51.5&longitude=-0.12&cu
 Find coordinates for a city, then query. Returns JSON with temp, windspeed, weathercode.
 
 Docs: https://open-meteo.com/en/docs
+
+## Output format
+
+For multi-day forecasts, use a compact table that fits within 35 monospace characters. Drop columns that don't fit — prioritise day, temp, and conditions. Example:
+
+```
+Day  Hi/Lo  Sky     Rain
+Fri  10-15  Rain    6.3
+Sat  13-16  Rain    0.7
+Sun  11-17  Cloud   0
+Mon  10-21  Fog     0
+Tue  10-18  Cloud   0
+```
+
+Rules:
+- Max 3-4 columns to stay under 35 chars
+- Abbreviate conditions: Rain, Cloud, Sun, Fog, Storm, Snow
+- Drop wind unless specifically asked for
+- No units in data rows — put them in headers if needed
+- Heading above the table: `Location — Date Range`
