@@ -152,6 +152,16 @@ function buildVolumeMounts(
       fs.cpSync(srcDir, dstDir, { recursive: true, dereference: true });
     }
   }
+  // Also sync agent-created skills from the group folder (persistent across sessions)
+  const agentSkillsSrc = path.join(groupDir, 'skills');
+  if (fs.existsSync(agentSkillsSrc)) {
+    for (const skillDir of fs.readdirSync(agentSkillsSrc)) {
+      const srcDir = path.join(agentSkillsSrc, skillDir);
+      if (!fs.statSync(srcDir).isDirectory()) continue;
+      const dstDir = path.join(skillsDst, skillDir);
+      fs.cpSync(srcDir, dstDir, { recursive: true, dereference: true });
+    }
+  }
   mounts.push({
     hostPath: groupSessionsDir,
     containerPath: '/home/node/.claude',
