@@ -12,25 +12,30 @@ import { logger } from './logger.js';
 export const CONTAINER_RUNTIME_BIN = 'container';
 
 /**
+ * DNS domain containers use to reach the host via `container system dns`.
+ * Created with --localhost so Apple Container routes it back to the host's loopback.
+ */
+const APPLE_CONTAINER_HOST_DOMAIN = 'host.container.internal';
+const APPLE_CONTAINER_LOCALHOST_IP = '203.0.113.1';
+
+/**
  * Hostname/IP containers use to reach the host machine.
+ * Apple Container: host.container.internal (via `container system dns --localhost`).
  * Docker Desktop (macOS/Windows): host.docker.internal resolves automatically.
- * Apple Container: no --add-host support, so use the bridge gateway IP directly.
  * Docker (Linux): host.docker.internal added via --add-host in hostGatewayArgs().
  */
 export const CONTAINER_HOST_GATEWAY = detectHostGateway();
 
 function detectHostGateway(): string {
   if (CONTAINER_RUNTIME_BIN === 'container') {
-    // Apple Container: find the bridge interface IP (typically bridge100)
-    const bridgeIp = findBridgeIp();
-    if (bridgeIp) return bridgeIp;
+    return APPLE_CONTAINER_HOST_DOMAIN;
   }
   return 'host.docker.internal';
 }
 
 /**
  * Address the credential proxy binds to.
- * Apple Container (macOS): bind to the bridge IP so containers can reach it.
+ * Apple Container (macOS): 127.0.0.1 — the --localhost DNS entry routes back to loopback.
  * Docker Desktop (macOS): 127.0.0.1 — the VM routes host.docker.internal to loopback.
  * Docker (Linux): bind to the docker0 bridge IP so only containers can reach it,
  *   falling back to 0.0.0.0 if the interface isn't found.
@@ -39,14 +44,7 @@ export const PROXY_BIND_HOST =
   process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
 
 function detectProxyBindHost(): string {
-  if (os.platform() === 'darwin') {
-    if (CONTAINER_RUNTIME_BIN === 'container') {
-      // Apple Container: proxy must be reachable from the bridge network
-      const bridgeIp = findBridgeIp();
-      if (bridgeIp) return bridgeIp;
-    }
-    return '127.0.0.1';
-  }
+  if (os.platform() === 'darwin') return '127.0.0.1';
 
   // WSL uses Docker Desktop (same VM routing as macOS) — loopback is correct.
   // Check /proc filesystem, not env vars — WSL_DISTRO_NAME isn't set under systemd.
@@ -62,28 +60,43 @@ function detectProxyBindHost(): string {
   return '0.0.0.0';
 }
 
-/** Find the IPv4 address of the Apple Container bridge interface. */
-function findBridgeIp(): string | null {
-  const ifaces = os.networkInterfaces();
-  // Apple Container uses bridge100+ interfaces
-  for (const [name, addrs] of Object.entries(ifaces)) {
-    if (name.startsWith('bridge') && addrs) {
-      const ipv4 = addrs.find((a) => a.family === 'IPv4' && !a.internal);
-      if (ipv4) return ipv4.address;
-    }
-  }
-  return null;
-}
-
 /** CLI args needed for the container to resolve the host gateway. */
 export function hostGatewayArgs(): string[] {
-  // Apple Container uses the bridge IP directly — no --add-host support
+  // Apple Container resolves host.container.internal via built-in DNS
   if (CONTAINER_RUNTIME_BIN === 'container') return [];
   // On Linux Docker, host.docker.internal isn't built-in — add it explicitly
   if (os.platform() === 'linux') {
     return ['--add-host=host.docker.internal:host-gateway'];
   }
   return [];
+}
+
+/**
+ * Ensure the Apple Container DNS entry exists for host.container.internal.
+ * This allows containers to reach host services (e.g. credential proxy) on loopback.
+ * Requires `container system dns create` which needs sudo on first run.
+ */
+export function ensureHostDns(): void {
+  if (CONTAINER_RUNTIME_BIN !== 'container') return;
+
+  try {
+    const output = execSync(`${CONTAINER_RUNTIME_BIN} system dns list`, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+    if (output.includes(APPLE_CONTAINER_HOST_DOMAIN)) {
+      logger.debug('Host DNS entry already configured');
+      return;
+    }
+  } catch {
+    // dns list failed — try to create anyway
+  }
+
+  logger.warn(
+    `Apple Container DNS entry for ${APPLE_CONTAINER_HOST_DOMAIN} is missing.\n` +
+      `Containers will not be able to reach host services.\n` +
+      `Run: sudo container system dns create ${APPLE_CONTAINER_HOST_DOMAIN} --localhost ${APPLE_CONTAINER_LOCALHOST_IP}`,
+  );
 }
 
 /** Returns CLI args for a readonly bind mount. */
