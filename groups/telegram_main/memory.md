@@ -2,6 +2,7 @@
 
 ## Personal Details
 - **Birthday:** 31st July 1963
+- **Preferred email:** rimmer.chris@gmail.com
 
 ## Key Projects
 
