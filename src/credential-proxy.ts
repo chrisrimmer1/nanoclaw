@@ -26,6 +26,7 @@ export interface ProxyConfig {
 export function startCredentialProxy(
   port: number,
   host = '127.0.0.1',
+  allowedCidr?: string,
 ): Promise<Server> {
   const secrets = readEnvFile([
     'ANTHROPIC_API_KEY',
@@ -44,8 +45,19 @@ export function startCredentialProxy(
   const isHttps = upstreamUrl.protocol === 'https:';
   const makeRequest = isHttps ? httpsRequest : httpRequest;
 
+  const subnet = allowedCidr ? parseCidr(allowedCidr) : null;
+
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
+      if (subnet && !isAllowedSource(req.socket.remoteAddress, subnet)) {
+        logger.warn(
+          { remoteAddress: req.socket.remoteAddress, url: req.url },
+          'Credential proxy rejected request from disallowed source',
+        );
+        res.writeHead(403);
+        res.end('Forbidden');
+        return;
+      }
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
@@ -110,7 +122,10 @@ export function startCredentialProxy(
     });
 
     server.listen(port, host, () => {
-      logger.info({ port, host, authMode }, 'Credential proxy started');
+      logger.info(
+        { port, host, authMode, allowedCidr },
+        'Credential proxy started',
+      );
       resolve(server);
     });
 
@@ -122,4 +137,40 @@ export function startCredentialProxy(
 export function detectAuthMode(): AuthMode {
   const secrets = readEnvFile(['ANTHROPIC_API_KEY']);
   return secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
+}
+
+interface CidrCheck {
+  base: number;
+  mask: number;
+}
+
+function parseCidr(cidr: string): CidrCheck | null {
+  const [ip, prefixStr] = cidr.split('/');
+  const prefix = Number.parseInt(prefixStr, 10);
+  const parts = ip?.split('.').map(Number) ?? [];
+  if (
+    parts.length !== 4 ||
+    parts.some((p) => Number.isNaN(p) || p < 0 || p > 255) ||
+    Number.isNaN(prefix) ||
+    prefix < 0 ||
+    prefix > 32
+  ) {
+    return null;
+  }
+  const ipNum =
+    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return { base: ipNum & mask, mask };
+}
+
+function isAllowedSource(addr: string | undefined, subnet: CidrCheck): boolean {
+  if (!addr) return false;
+  // Strip IPv4-mapped IPv6 prefix (e.g. "::ffff:192.168.64.2")
+  const v4 = addr.startsWith('::ffff:') ? addr.slice(7) : addr;
+  if (v4 === '127.0.0.1' || v4 === '::1') return true;
+  const parts = v4.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((p) => Number.isNaN(p))) return false;
+  const ipNum =
+    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  return (ipNum & subnet.mask) === subnet.base;
 }

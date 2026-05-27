@@ -12,30 +12,68 @@ import { logger } from './logger.js';
 export const CONTAINER_RUNTIME_BIN = 'container';
 
 /**
- * DNS domain containers use to reach the host via `container system dns`.
- * Created with --localhost so Apple Container routes it back to the host's loopback.
+ * Apple Container's default-network metadata, populated by
+ * `ensureContainerRuntimeRunning()` after the runtime is confirmed up. All
+ * accessors that need the bridge gateway or subnet go through `appleNetwork()`,
+ * which throws if called before initialization.
  */
-const APPLE_CONTAINER_HOST_DOMAIN = 'host.container.internal';
-const APPLE_CONTAINER_LOCALHOST_IP = '203.0.113.1';
+let _appleNetwork: { ipv4Gateway: string; ipv4Subnet: string } | null = null;
+
+function inspectAppleContainerNetwork(): {
+  ipv4Gateway: string;
+  ipv4Subnet: string;
+} {
+  let json: string;
+  try {
+    json = execSync('container network inspect default', {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      encoding: 'utf-8',
+    });
+  } catch (err) {
+    throw new Error(
+      `Failed to inspect Apple Container default network: ${(err as Error).message.trim()}. ` +
+        `NanoClaw needs this to determine the bridge gateway IP. ` +
+        `Ensure the runtime is healthy: 'container system status' / 'container network ls'.`,
+    );
+  }
+  const parsed = JSON.parse(json) as Array<{
+    status?: { ipv4Gateway?: string; ipv4Subnet?: string };
+  }>;
+  const status = parsed[0]?.status;
+  if (!status?.ipv4Gateway || !status?.ipv4Subnet) {
+    throw new Error(
+      `Apple Container default network did not report ipv4Gateway and ipv4Subnet. ` +
+        `Raw output: ${json.trim()}`,
+    );
+  }
+  return { ipv4Gateway: status.ipv4Gateway, ipv4Subnet: status.ipv4Subnet };
+}
+
+function appleNetwork(): { ipv4Gateway: string; ipv4Subnet: string } {
+  if (!_appleNetwork) {
+    throw new Error(
+      'Apple Container network not initialized — ensureContainerRuntimeRunning() must be called first',
+    );
+  }
+  return _appleNetwork;
+}
 
 /**
- * Hostname/IP containers use to reach the host machine.
- * Apple Container: host.container.internal (via `container system dns --localhost`).
+ * IP containers use to reach the host machine.
+ * Apple Container: the default network's bridge gateway IP (e.g. 192.168.64.1).
  * Docker Desktop (macOS/Windows): host.docker.internal resolves automatically.
  * Docker (Linux): host.docker.internal added via --add-host in hostGatewayArgs().
  */
-export const CONTAINER_HOST_GATEWAY = detectHostGateway();
-
-function detectHostGateway(): string {
-  if (CONTAINER_RUNTIME_BIN === 'container') {
-    return APPLE_CONTAINER_HOST_DOMAIN;
-  }
+export function getContainerHostGateway(): string {
+  if (CONTAINER_RUNTIME_BIN === 'container') return appleNetwork().ipv4Gateway;
   return 'host.docker.internal';
 }
 
 /**
  * Address the credential proxy binds to.
- * Apple Container (macOS): 127.0.0.1 — the --localhost DNS entry routes back to loopback.
+ * Apple Container (macOS): 0.0.0.0 — bridge100 doesn't exist until the first
+ *   container starts, so we can't bind to the gateway IP directly. Access is
+ *   gated by getProxyAllowedCidr() (loopback + container subnet).
  * Docker Desktop (macOS): 127.0.0.1 — the VM routes host.docker.internal to loopback.
  * Docker (Linux): bind to the docker0 bridge IP so only containers can reach it,
  *   falling back to 0.0.0.0 if the interface isn't found.
@@ -44,7 +82,10 @@ export const PROXY_BIND_HOST =
   process.env.CREDENTIAL_PROXY_HOST || detectProxyBindHost();
 
 function detectProxyBindHost(): string {
-  if (os.platform() === 'darwin') return '127.0.0.1';
+  if (os.platform() === 'darwin') {
+    if (CONTAINER_RUNTIME_BIN === 'container') return '0.0.0.0';
+    return '127.0.0.1';
+  }
 
   // WSL uses Docker Desktop (same VM routing as macOS) — loopback is correct.
   // Check /proc filesystem, not env vars — WSL_DISTRO_NAME isn't set under systemd.
@@ -60,43 +101,26 @@ function detectProxyBindHost(): string {
   return '0.0.0.0';
 }
 
+/**
+ * CIDR that the credential proxy will accept requests from (in addition to
+ * loopback). Only set when binding wide (Apple Container path). Undefined
+ * means no source filtering (binds are already restrictive).
+ */
+export function getProxyAllowedCidr(): string | undefined {
+  if (CONTAINER_RUNTIME_BIN === 'container') return appleNetwork().ipv4Subnet;
+  return undefined;
+}
+
 /** CLI args needed for the container to resolve the host gateway. */
 export function hostGatewayArgs(): string[] {
-  // Apple Container resolves host.container.internal via built-in DNS
+  // Apple Container: we pass the gateway IP directly in ANTHROPIC_BASE_URL,
+  // no hostname mapping needed.
   if (CONTAINER_RUNTIME_BIN === 'container') return [];
   // On Linux Docker, host.docker.internal isn't built-in — add it explicitly
   if (os.platform() === 'linux') {
     return ['--add-host=host.docker.internal:host-gateway'];
   }
   return [];
-}
-
-/**
- * Ensure the Apple Container DNS entry exists for host.container.internal.
- * This allows containers to reach host services (e.g. credential proxy) on loopback.
- * Requires `container system dns create` which needs sudo on first run.
- */
-export function ensureHostDns(): void {
-  if (CONTAINER_RUNTIME_BIN !== 'container') return;
-
-  try {
-    const output = execSync(`${CONTAINER_RUNTIME_BIN} system dns list`, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-    });
-    if (output.includes(APPLE_CONTAINER_HOST_DOMAIN)) {
-      logger.debug('Host DNS entry already configured');
-      return;
-    }
-  } catch {
-    // dns list failed — try to create anyway
-  }
-
-  logger.warn(
-    `Apple Container DNS entry for ${APPLE_CONTAINER_HOST_DOMAIN} is missing.\n` +
-      `Containers will not be able to reach host services.\n` +
-      `Run: sudo container system dns create ${APPLE_CONTAINER_HOST_DOMAIN} --localhost ${APPLE_CONTAINER_LOCALHOST_IP}`,
-  );
 }
 
 /** Returns CLI args for a readonly bind mount. */
@@ -130,33 +154,44 @@ export function ensureContainerRuntimeRunning(): void {
       logger.info('Container runtime started');
     } catch (err) {
       logger.error({ err }, 'Failed to start container runtime');
-      console.error(
-        '\n╔════════════════════════════════════════════════════════════════╗',
-      );
-      console.error(
-        '║  FATAL: Container runtime failed to start                      ║',
-      );
-      console.error(
-        '║                                                                ║',
-      );
-      console.error(
-        '║  Agents cannot run without a container runtime. To fix:        ║',
-      );
-      console.error(
-        '║  1. Ensure Apple Container is installed                        ║',
-      );
-      console.error(
-        '║  2. Run: container system start                                ║',
-      );
-      console.error(
-        '║  3. Restart NanoClaw                                           ║',
-      );
-      console.error(
-        '╚════════════════════════════════════════════════════════════════╝\n',
-      );
-      throw new Error('Container runtime is required but failed to start');
+      printRuntimeFatalAndThrow();
     }
   }
+
+  // Runtime is up — populate network metadata. Hard-fails if Apple Container
+  // can't report ipv4Gateway/ipv4Subnet; we have no fallback worth guessing.
+  if (CONTAINER_RUNTIME_BIN === 'container' && !_appleNetwork) {
+    _appleNetwork = inspectAppleContainerNetwork();
+    logger.info(_appleNetwork, 'Apple Container network discovered');
+  }
+}
+
+function printRuntimeFatalAndThrow(): never {
+  console.error(
+    '\n╔════════════════════════════════════════════════════════════════╗',
+  );
+  console.error(
+    '║  FATAL: Container runtime failed to start                      ║',
+  );
+  console.error(
+    '║                                                                ║',
+  );
+  console.error(
+    '║  Agents cannot run without a container runtime. To fix:        ║',
+  );
+  console.error(
+    '║  1. Ensure Apple Container is installed                        ║',
+  );
+  console.error(
+    '║  2. Run: container system start                                ║',
+  );
+  console.error(
+    '║  3. Restart NanoClaw                                           ║',
+  );
+  console.error(
+    '╚════════════════════════════════════════════════════════════════╝\n',
+  );
+  throw new Error('Container runtime is required but failed to start');
 }
 
 /** Kill orphaned NanoClaw containers from previous runs. */

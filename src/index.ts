@@ -24,7 +24,7 @@ import {
 import {
   cleanupOrphans,
   ensureContainerRuntimeRunning,
-  ensureHostDns,
+  getProxyAllowedCidr,
   PROXY_BIND_HOST,
 } from './container-runtime.js';
 import {
@@ -537,7 +537,6 @@ function recoverPendingMessages(): void {
 
 function ensureContainerSystemRunning(): void {
   ensureContainerRuntimeRunning();
-  ensureHostDns();
   cleanupOrphans();
 }
 
@@ -552,6 +551,7 @@ async function main(): Promise<void> {
   const proxyServer = await startCredentialProxy(
     CREDENTIAL_PROXY_PORT,
     PROXY_BIND_HOST,
+    getProxyAllowedCidr(),
   );
 
   // Graceful shutdown handlers
