@@ -51,6 +51,19 @@ vi.mock('./mount-security.js', () => ({
   validateAdditionalMounts: vi.fn(() => []),
 }));
 
+// Mock container-runtime so the runner tests don't need to bootstrap
+// Apple Container's network metadata.
+vi.mock('./container-runtime.js', () => ({
+  CONTAINER_RUNTIME_BIN: 'container',
+  getContainerHostGateway: () => '192.168.64.1',
+  hostGatewayArgs: () => [],
+  readonlyMountArgs: (host: string, target: string) => [
+    '--mount',
+    `type=bind,source=${host},target=${target},readonly`,
+  ],
+  stopContainer: (name: string) => `container stop ${name}`,
+}));
+
 // Create a controllable fake ChildProcess
 function createFakeProcess() {
   const proc = new EventEmitter() as EventEmitter & {

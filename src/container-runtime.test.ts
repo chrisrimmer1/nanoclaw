@@ -22,11 +22,19 @@ import {
   stopContainer,
   ensureContainerRuntimeRunning,
   cleanupOrphans,
+  __resetAppleNetworkForTests,
 } from './container-runtime.js';
 import { logger } from './logger.js';
 
+// Sample `container network inspect default` payload used to satisfy the
+// network-metadata lookup that ensureContainerRuntimeRunning() performs.
+const NETWORK_INSPECT_OUTPUT = JSON.stringify([
+  { status: { ipv4Gateway: '192.168.64.1', ipv4Subnet: '192.168.64.0/24' } },
+]);
+
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetAppleNetworkForTests();
 });
 
 // --- Pure functions ---
@@ -52,38 +60,73 @@ describe('stopContainer', () => {
 // --- ensureContainerRuntimeRunning ---
 
 describe('ensureContainerRuntimeRunning', () => {
-  it('does nothing when runtime is already running', () => {
-    mockExecSync.mockReturnValueOnce('');
-
-    ensureContainerRuntimeRunning();
-
-    expect(mockExecSync).toHaveBeenCalledTimes(1);
-    expect(mockExecSync).toHaveBeenCalledWith(
-      `${CONTAINER_RUNTIME_BIN} system status`,
-      { stdio: 'pipe' },
-    );
-    expect(logger.debug).toHaveBeenCalledWith(
-      'Container runtime already running',
-    );
-  });
-
-  it('auto-starts when system status fails', () => {
-    // First call (system status) fails
-    mockExecSync.mockImplementationOnce(() => {
-      throw new Error('not running');
-    });
-    // Second call (system start) succeeds
-    mockExecSync.mockReturnValueOnce('');
+  it('does nothing when runtime is already running, then inspects network', () => {
+    mockExecSync.mockReturnValueOnce(''); // system status
+    mockExecSync.mockReturnValueOnce(NETWORK_INSPECT_OUTPUT); // network inspect
 
     ensureContainerRuntimeRunning();
 
     expect(mockExecSync).toHaveBeenCalledTimes(2);
     expect(mockExecSync).toHaveBeenNthCalledWith(
+      1,
+      `${CONTAINER_RUNTIME_BIN} system status`,
+      { stdio: 'pipe' },
+    );
+    expect(mockExecSync).toHaveBeenNthCalledWith(
+      2,
+      'container network inspect default',
+      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+    );
+    expect(logger.debug).toHaveBeenCalledWith(
+      'Container runtime already running',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { ipv4Gateway: '192.168.64.1', ipv4Subnet: '192.168.64.0/24' },
+      'Apple Container network discovered',
+    );
+  });
+
+  it('auto-starts when system status fails, then inspects network', () => {
+    mockExecSync.mockImplementationOnce(() => {
+      throw new Error('not running');
+    }); // system status fails
+    mockExecSync.mockReturnValueOnce(''); // system start succeeds
+    mockExecSync.mockReturnValueOnce(NETWORK_INSPECT_OUTPUT); // network inspect
+
+    ensureContainerRuntimeRunning();
+
+    expect(mockExecSync).toHaveBeenCalledTimes(3);
+    expect(mockExecSync).toHaveBeenNthCalledWith(
       2,
       `${CONTAINER_RUNTIME_BIN} system start`,
       { stdio: 'pipe', timeout: 30000 },
     );
+    expect(mockExecSync).toHaveBeenNthCalledWith(
+      3,
+      'container network inspect default',
+      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+    );
     expect(logger.info).toHaveBeenCalledWith('Container runtime started');
+  });
+
+  it('throws with a helpful message when network inspect fails', () => {
+    mockExecSync.mockReturnValueOnce(''); // system status ok
+    mockExecSync.mockImplementationOnce(() => {
+      throw new Error('vmnet plugin not loaded');
+    }); // network inspect fails
+
+    expect(() => ensureContainerRuntimeRunning()).toThrow(
+      /Failed to inspect Apple Container default network.*vmnet plugin not loaded/,
+    );
+  });
+
+  it('throws when network inspect returns no ipv4Gateway/ipv4Subnet', () => {
+    mockExecSync.mockReturnValueOnce(''); // system status ok
+    mockExecSync.mockReturnValueOnce(JSON.stringify([{ status: {} }])); // empty status
+
+    expect(() => ensureContainerRuntimeRunning()).toThrow(
+      /did not report ipv4Gateway and ipv4Subnet/,
+    );
   });
 
   it('throws when both status and start fail', () => {

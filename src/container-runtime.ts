@@ -58,6 +58,11 @@ function appleNetwork(): { ipv4Gateway: string; ipv4Subnet: string } {
   return _appleNetwork;
 }
 
+/** Test-only: clear cached Apple Container network state between tests. */
+export function __resetAppleNetworkForTests(): void {
+  _appleNetwork = null;
+}
+
 /**
  * IP containers use to reach the host machine.
  * Apple Container: the default network's bridge gateway IP (e.g. 192.168.64.1).
