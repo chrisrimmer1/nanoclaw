@@ -237,6 +237,10 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // gws stores its encryption key in the OS keyring by default; the container
+  // has no keyring service, so force the file-backed key (.encryption_key).
+  args.push('-e', 'GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND=file');
+
   // Route API traffic through the credential proxy (containers never see real secrets)
   args.push(
     '-e',
