@@ -204,14 +204,46 @@ function buildVolumeMounts(
     readonly: false,
   });
 
-  // Mount gws (Google Workspace CLI) credentials read-only if available
-  const gwsConfigDir = path.join(process.env.HOME || '/root', '.config', 'gws');
-  if (fs.existsSync(gwsConfigDir)) {
+  // gws (Google Workspace CLI) authenticates via Google Application Default
+  // Credentials, which live in ~/.config/gcloud/. Apple Container can't
+  // bind-mount single files, so stage a fresh copy of just the ADC file (not
+  // the whole gcloud dir, which holds broader gcloud CLI tokens) and mount it
+  // at the well-known ADC path. ADC alone is sufficient: gws creates its own
+  // config/token cache inside the container, so the host's ~/.config/gws is
+  // not mounted (a writable mount lets containers clobber the host's token
+  // cache with an incompatible encryption key).
+  const adcFile = path.join(
+    process.env.HOME || '/root',
+    '.config',
+    'gcloud',
+    'application_default_credentials.json',
+  );
+  if (fs.existsSync(adcFile)) {
+    const adcStagingDir = path.join(DATA_DIR, 'gcloud-adc');
+    fs.mkdirSync(adcStagingDir, { recursive: true });
+    fs.copyFileSync(
+      adcFile,
+      path.join(adcStagingDir, 'application_default_credentials.json'),
+    );
     mounts.push({
-      hostPath: gwsConfigDir,
-      containerPath: '/home/node/.config/gws',
-      readonly: false, // gws needs write access to refresh OAuth tokens
+      hostPath: adcStagingDir,
+      containerPath: '/home/node/.config/gcloud',
+      readonly: true,
     });
+  } else {
+    // Legacy fallback: gws OAuth credentials stored in its own config dir
+    const gwsConfigDir = path.join(
+      process.env.HOME || '/root',
+      '.config',
+      'gws',
+    );
+    if (fs.existsSync(gwsConfigDir)) {
+      mounts.push({
+        hostPath: gwsConfigDir,
+        containerPath: '/home/node/.config/gws',
+        readonly: false, // gws needs write access to refresh OAuth tokens
+      });
+    }
   }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
