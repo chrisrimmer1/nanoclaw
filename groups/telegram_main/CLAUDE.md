@@ -29,6 +29,17 @@ Simple two-column data (time + item, label + value) should be plain text with Te
 
 For key-value pairs: *Calories:* 1850
 
+## Google Workspace (gws) auth — do not misdiagnose
+
+gws here authenticates via Google ADC (mounted at `~/.config/gcloud/`), not
+stored OAuth. `gws auth status` cannot see ADC, so it always reports
+`auth_method: none` and a missing `~/.config/gws/` — **this is normal and does
+NOT mean auth is broken.** Never conclude auth is broken from `gws auth status`.
+To test, make a real call (e.g. `gws gmail users labels list --params
+'{"userId":"me"}'`); if it returns data, auth works. Only a real 401 means it's
+broken, and that's fixed on the host, not by pasting credentials. See the
+`gws-shared` skill for detail.
+
 ## Creating Skills
 
 To create a persistent skill, write it to `/workspace/group/skills/<name>/SKILL.md`.
