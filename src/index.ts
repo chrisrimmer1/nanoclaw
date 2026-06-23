@@ -9,6 +9,7 @@ import {
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
+import { sendAlert, startHeartbeat, stopHeartbeat } from './alerting.js';
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
@@ -253,6 +254,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   await channel.setTyping?.(chatJid, true);
   let hadError = false;
+  let errorDetail = '';
   let outputSentToUser = false;
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
@@ -279,6 +281,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     if (result.status === 'error') {
       hadError = true;
+      if (result.error) errorDetail = result.error;
     }
   });
 
@@ -301,6 +304,14 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
     logger.warn(
       { group: group.name },
       'Agent error, rolled back message cursor for retry',
+    );
+    // The user got no response at all — ping the phone so silent failures
+    // (timed-out / wedged container) don't just vanish. Cooldown is per-group.
+    sendAlert(
+      `agent-fail:${group.folder}`,
+      `${ASSISTANT_NAME} failed to respond in ${group.name}` +
+        (errorDetail ? ` — ${errorDetail}` : '') +
+        '. Message re-queued for retry.',
     );
     return false;
   }
@@ -546,6 +557,7 @@ async function main(): Promise<void> {
   logger.info('Database initialized');
   loadState();
   restoreRemoteControl();
+  startHeartbeat();
 
   // Start credential proxy (containers route API calls through this)
   const proxyServer = await startCredentialProxy(
@@ -557,6 +569,7 @@ async function main(): Promise<void> {
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutdown signal received');
+    stopHeartbeat();
     proxyServer.close();
     await queue.shutdown(10000);
     for (const ch of channels) await ch.disconnect();

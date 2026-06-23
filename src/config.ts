@@ -58,6 +58,21 @@ export const MAX_CONCURRENT_CONTAINERS = Math.max(
   parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
 );
 
+// Alerting: Telegram pings via the `notify` CLI when an agent run fails silently.
+// ALERT_NOTIFY_BIN is the path to that CLI; ALERT_COOLDOWN_MS de-dupes repeat
+// alerts (e.g. a retry loop) so the phone isn't spammed.
+export const ALERT_NOTIFY_BIN =
+  process.env.ALERT_NOTIFY_BIN || path.join(HOME_DIR, 'bin', 'notify');
+export const ALERT_COOLDOWN_MS = parseInt(
+  process.env.ALERT_COOLDOWN_MS || '600000',
+  10,
+); // 10min default — minimum gap between repeat alerts of the same kind
+
+// Heartbeat: the host touches this file on a timer so an external watchdog can
+// tell whether NanoClaw is alive (covers both a dead process and a wedged one).
+export const HEARTBEAT_PATH = path.join(DATA_DIR, '.heartbeat');
+export const HEARTBEAT_INTERVAL_MS = 60000; // 1min
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
