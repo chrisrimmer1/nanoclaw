@@ -64,6 +64,32 @@ Messages and task operations are verified against group identity:
 | View all tasks | ✓ | Own only |
 | Manage other groups | ✓ | ✗ |
 
+**Sender Allowlist (trigger gating).**
+
+An external config at `~/.config/nanoclaw/sender-allowlist.json` controls which
+senders may trigger the agent, per chat. If the file is absent the code defaults
+to `allow: '*'` (anyone in a registered chat can trigger) — so this deployment
+ships an explicit default-deny instead:
+
+```json
+{
+  "default": { "allow": [], "mode": "trigger" },
+  "chats": { "tg:7076872214": { "allow": "*", "mode": "trigger" } },
+  "logDenied": true
+}
+```
+
+- `default` denies *triggering* for any chat not listed (`allow: []`), so a
+  future group chat can't auto-run the unattended agent until its senders are
+  added. `mode: "trigger"` (not `"drop"`) means such messages are still stored,
+  not silently discarded.
+- The single private main chat (`tg:7076872214`, a 1:1 only the operator can
+  message) is pinned `allow: "*"`. Sender values are numeric Telegram user IDs.
+- Loaded fresh per message — edits take effect with no restart.
+- Note: the main group also bypasses the trigger gate via `isMainGroup`; the
+  explicit entry additionally keeps it safe from the drop path. Both belt and
+  braces.
+
 ### 5. Credential Isolation (Credential Proxy)
 
 **Anthropic API credentials never enter containers.** The host runs an HTTP credential proxy that injects authentication headers transparently.
