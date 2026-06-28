@@ -79,7 +79,8 @@ container run --rm --entrypoint curl nanoclaw-agent:latest \
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `curl: (28) Connection timed out` | IP forwarding disabled | `sudo sysctl -w net.inet.ip.forwarding=1` |
+| `curl: (28) Connection timed out` reaching the proxy | IP forwarding disabled | `sudo sysctl -w net.inet.ip.forwarding=1` |
+| Agent starts but never replies; proxy times out from the bridge **while IP forwarding is already on** and loopback works | macOS Application Firewall is blocking the `node` binary on non-loopback interfaces | Allow node: `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /opt/homebrew/bin/node` then `--unblockapp /opt/homebrew/bin/node`, then restart nanoclaw. See "App firewall" below. |
 | HTTP works, HTTPS times out | IPv6 DNS resolution | Add `NODE_OPTIONS=--dns-result-order=ipv4first` |
 | `Could not resolve host` | DNS not forwarded | Check bridge100 exists, verify pfctl NAT rules |
 | `API Error: Unable to connect to API (ENETUNREACH)` | Old NanoClaw build relying on `host.container.internal` DNS | Rebuild NanoClaw; the gateway is now read from `container network inspect default` |
@@ -105,6 +106,42 @@ bridge100 (192.168.64.1) ← host bridge, created by vmnet when container runs
     │
 en0 (your WiFi/Ethernet) → Internet
 ```
+
+## App Firewall blocking the credential proxy (seen 2026-06-28)
+
+Symptom: Claudette receives messages and spawns a container, but never replies —
+the agent hangs forever on its first Anthropic API call. IP forwarding and NAT
+are fine; the proxy is listening; the container just can't reach it.
+
+Root cause: the macOS **Application Firewall** (System Settings → Network →
+Firewall) blocks the Homebrew `node` binary from accepting connections on
+non-loopback interfaces. Loopback is always allowed, so the proxy answers on
+`127.0.0.1:3001` but drops connections to `192.168.64.1:3001` (the bridge gateway
+the container uses). The per-app approval can reset (e.g. after a `node` upgrade
+or losing the prompt under launchd) and only bites on the **next service restart**.
+
+Decisive diagnostic (no sudo needed):
+
+```bash
+# Proxy answers on loopback...
+curl -s -m5 -o/dev/null -w "loopback %{http_code}\n" http://127.0.0.1:3001/v1/messages   # 405
+# ...but times out via the bridge gateway the container uses:
+curl -s -m5 -o/dev/null -w "gateway %{http_code}\n" http://192.168.64.1:3001/v1/messages  # 000 (exit 28)
+# Prove it's node-specific, not the bridge: an Apple-signed python listener is reachable on the bridge:
+/usr/bin/python3 -c 'import http.server,socketserver;socketserver.TCPServer(("0.0.0.0",3999),http.server.BaseHTTPRequestHandler).serve_forever()' & sleep 1
+curl -s -m4 -o/dev/null -w "py gateway %{http_code}\n" http://192.168.64.1:3999/ ; kill %1   # 501 = bridge fine, node blocked
+```
+
+Fix (needs sudo, run **on the mini** where nanoclaw runs):
+
+```bash
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /opt/homebrew/bin/node
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /opt/homebrew/bin/node
+launchctl kickstart -k gui/$(id -u)/com.nanoclaw
+```
+
+Then confirm `curl http://192.168.64.1:3001/v1/messages` returns 405. If Claudette
+goes silent right after a `node` upgrade or a reboot, check this first.
 
 ## References
 
