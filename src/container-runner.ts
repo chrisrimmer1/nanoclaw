@@ -290,7 +290,10 @@ function buildContainerArgs(
     args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
   }
 
-  // Pass YNAB credentials if configured (read-only CLI wrapper enforces safety)
+  // Pass YNAB credentials if configured. NOTE: this is a real, full read-write
+  // token in plaintext env. The ynab-readonly.sh wrapper blocks writes via the
+  // `ynab` CLI but is NOT an adversarial boundary — the raw token can be used
+  // directly (e.g. curl POST). See docs/SECURITY.md §5 "Exception". Accepted risk.
   const ynabEnv = readEnvFile(['YNAB_API_KEY', 'YNAB_ACCESS_TOKEN']);
   const ynabKey = ynabEnv.YNAB_API_KEY || ynabEnv.YNAB_ACCESS_TOKEN;
   if (ynabKey) {

@@ -66,14 +66,37 @@ Messages and task operations are verified against group identity:
 
 ### 5. Credential Isolation (Credential Proxy)
 
-Real API credentials **never enter containers**. Instead, the host runs an HTTP credential proxy that injects authentication headers transparently.
+**Anthropic API credentials never enter containers.** The host runs an HTTP credential proxy that injects authentication headers transparently.
 
 **How it works:**
 1. Host starts a credential proxy on `CREDENTIAL_PROXY_PORT` (default: 3001)
 2. Containers receive `ANTHROPIC_BASE_URL=http://host.docker.internal:<port>` and `ANTHROPIC_API_KEY=placeholder`
 3. The SDK sends API requests to the proxy with the placeholder key
 4. The proxy strips placeholder auth, injects real credentials (`x-api-key` or `Authorization: Bearer`), and forwards to `api.anthropic.com`
-5. Agents cannot discover real credentials — not in environment, stdin, files, or `/proc`
+5. For the Anthropic credential, agents cannot discover the real secret — not in environment, stdin, files, or `/proc`.
+
+**Exception — the YNAB token is NOT proxied.** This deployment injects a real
+`YNAB_API_KEY` into the container as a plaintext environment variable so the
+in-container `ynab` CLI can make budget queries. Be precise about what this
+does and does not protect:
+
+- YNAB Personal Access Tokens **cannot be scoped read-only** — they are always
+  full read-write. There is no read-only token to issue.
+- `container/ynab-readonly.sh` wraps the `ynab` CLI and blocks write
+  subcommands (`create/update/delete/split/budget`), raw `ynab api`
+  POST/PUT/PATCH/DELETE, and the MCP server. This guards against *accidental*
+  writes via the CLI.
+- It is **not an adversarial boundary.** The raw token is in `$YNAB_API_KEY`,
+  so an agent (e.g. under prompt-injection from content it reads) can bypass
+  the wrapper entirely with a direct `curl -X POST` to the YNAB API and write
+  to the budget.
+- Accepted risk: blast radius is limited to the YNAB budget (recoverable, no
+  code/credential exposure), and only the operator can message the single
+  private chat. To fully close this, move YNAB behind a host-side read-only
+  IPC tool (token never enters the container) — deferred by choice.
+
+(GitHub was previously injected the same way; it has been removed entirely —
+no `gh` CLI, no `GITHUB_TOKEN`/`GH_REPO` in the container.)
 
 **NOT Mounted:**
 - WhatsApp session (`store/auth/`) - host only
@@ -116,7 +139,7 @@ Real API credentials **never enter containers**. Instead, the host runs an HTTP 
 │  • Agent execution                                                │
 │  • Bash commands (sandboxed)                                      │
 │  • File operations (limited to mounts)                            │
-│  • API calls routed through credential proxy                     │
-│  • No real credentials in environment or filesystem              │
+│  • Anthropic API calls routed through credential proxy           │
+│  • No Anthropic credentials in env/filesystem (YNAB token excepted) │
 └──────────────────────────────────────────────────────────────────┘
 ```

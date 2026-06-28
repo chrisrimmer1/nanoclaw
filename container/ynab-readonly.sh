@@ -2,6 +2,11 @@
 # Read-only wrapper for ynab-cli.
 # Blocks all write operations (create, update, delete, split, budget, set-default, api POST/PUT/PATCH/DELETE).
 # Only allows read commands through to the real ynab binary.
+#
+# CAVEAT: this only guards the `ynab` CLI. The real, full read-write
+# YNAB_API_KEY is still in the container env, so a direct `curl -X POST` to the
+# YNAB API bypasses this wrapper entirely. Not an adversarial boundary.
+# See docs/SECURITY.md §5 "Exception — the YNAB token is NOT proxied".
 
 set -euo pipefail
 
