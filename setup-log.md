@@ -31,6 +31,12 @@ Fresh install detected &mdash; no existing `.env`, no authentication, no registe
 
 ## 4. Container Runtime &mdash; Docker
 
+> **Superseded (2026):** the runtime has since migrated from Docker to **Apple
+> Container** (macOS-native VM isolation). The Docker steps below are the
+> original setup and are kept for history; the current runtime, networking
+> setup, and troubleshooting live in
+> [docs/APPLE-CONTAINER-NETWORKING.md](docs/APPLE-CONTAINER-NETWORKING.md).
+
 Docker was not installed. Installed via Homebrew:
 
 ```bash
@@ -123,7 +129,7 @@ Final verification passed all checks:
 | Check | Status |
 |-------|--------|
 | Service | Running |
-| Container runtime | Docker |
+| Container runtime | Docker (since migrated to Apple Container) |
 | Credentials | Configured |
 | Channels | Telegram |
 | Channel auth | Configured |
