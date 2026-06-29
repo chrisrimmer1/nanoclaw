@@ -40,6 +40,16 @@ To test, make a real call (e.g. `gws gmail users labels list --params
 broken, and that's fixed on the host, not by pasting credentials. See the
 `gws-shared` skill for detail.
 
+## About Chris (personal knowledge base)
+
+For any question about Chris personally — the people in his life, his businesses,
+projects, clients, working style or preferences — use the **about-me** skill. His
+knowledge base is mounted read-only at
+`/workspace/extra/python_projects/about_me/okf` (people / organisations / projects
+/ topics / reference). **Never** read or reveal anything under `okf/private/`
+(health, finances, psychology) — that's off-limits on Telegram; if asked, say it's
+kept off Telegram and he can ask at his Mac. See the about-me skill for how.
+
 ## Creating Skills
 
 To create a persistent skill, write it to `/workspace/group/skills/<name>/SKILL.md`.
