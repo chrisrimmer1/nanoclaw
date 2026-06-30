@@ -23,17 +23,33 @@ Sub-directories (each has an `index.md` listing its concepts):
 
 ## How to answer
 
-1. Find the right concept — grep the bundle, e.g.
-   `grep -ril karim /workspace/extra/python_projects/about_me/okf/`
-   or scan the relevant `index.md`.
-2. Read only the file(s) you need (`cat` the matching `.md`), then answer from them.
-3. Keep it tight for Telegram (~35-char width). Don't dump whole files — summarise.
+1. **Find the right concept.** Grep the bundle case-insensitively, **excluding the
+   private tier** so it never even appears in results:
+   ```
+   grep -ril --exclude-dir=private karim /workspace/extra/python_projects/about_me/okf/
+   ```
+   When several files match, rank by *where* the term hits: a match in a file's
+   **frontmatter** (the `title:` / `description:` / `tags:` lines at the very top) or in
+   a sub-directory's `index.md` one-liner means that concept is *about* the term —
+   prefer those over incidental mentions buried in another file's body. Scan the
+   relevant `index.md` to disambiguate.
+2. **Read only the file(s) you need** (`cat` the matching `.md`) and answer from them.
+3. **Also check the inbox** for recently-captured-but-not-yet-filed facts on the topic:
+   ```
+   grep -i karim /workspace/extra/python_projects/about_me/inbox.md
+   ```
+   The concept files are authoritative. If the inbox has something relevant, surface it
+   **clearly labelled as tentative** ("not yet confirmed: …") — never as established
+   fact — and if it contradicts a concept, flag the conflict rather than silently
+   picking one.
+4. Keep it tight for Telegram (~35-char width). Don't dump whole files — summarise.
 
 ## CRITICAL — privacy boundary
 
 - **Never read, quote, or reveal anything under `okf/private/`** (health, finances,
   psychology). That tier is **off-limits on Telegram.** Do not `cat`, `grep`, or
-  summarise those files, and do not infer their contents.
+  summarise those files, and do not infer their contents. (The `--exclude-dir=private`
+  above keeps that tier out of search results mechanically — keep it on every grep.)
 - If asked something that would need the private tier (his health, money, therapy/
   psychology), **decline briefly**: say that's kept off Telegram and he can ask at
   his Mac instead. Don't apologise at length; just one line.
